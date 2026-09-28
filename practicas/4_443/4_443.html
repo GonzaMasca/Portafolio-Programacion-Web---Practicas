@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>To-Do List</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 500px;
+            margin: 40px auto;
+        }
+
+        #nuevaTarea {
+            padding: 6px;
+            width: 250px;
+        }
+
+        #btnAgregar {
+            padding: 6px 12px;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid #ccc;
+            margin-top: 8px;
+        }
+
+        li.completada {
+            background-color: #d9f2d9;
+            text-decoration: line-through;
+            color: #555;
+        }
+
+        .btnCompletar {
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            margin-left: 6px;
+            cursor: pointer;
+        }
+
+        .btnEliminar {
+            background-color: #e53935;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            margin-left: 6px;
+            cursor: pointer;
+        }
+
+        #registro {
+            background-color: #f4f4f4;
+            padding: 10px;
+            white-space: pre-line;
+            font-family: monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>To-Do List</h1>
+
+<input type="text" id="nuevaTarea" placeholder="Escribe una tarea...">
+<button id="btnAgregar">Agregar</button>
+
+<ul id="listaTareas"></ul>
+
+<h3>Registro de cambios en el DOM:</h3>
+<div id="registro">Esperando cambios en el DOM...</div>
+
+<script>
+    const input = document.getElementById("nuevaTarea");
+    const btnAgregar = document.getElementById("btnAgregar");
+    const lista = document.getElementById("listaTareas");
+    const registro = document.getElementById("registro");
+
+    // Agrega una línea nueva al cuadro de registro, sin borrar lo que ya estaba.
+    function agregarLogRegistro(texto) {
+        registro.textContent += "\n" + texto;
+    }
+
+    // Arma un <li> completo con su texto y sus dos botones (completar y eliminar).
+    function crearTarea(texto) {
+        const li = document.createElement("li");
+        li.textContent = texto;
+
+        const btnCompletar = document.createElement("button");
+        btnCompletar.textContent = "✔";
+        btnCompletar.className = "btnCompletar";
+        btnCompletar.addEventListener("click", () => {
+            // Alterna la clase "completada" (tachado y fondo verde) y guarda ese estado como atributo del <li>.
+            li.classList.toggle("completada");
+            li.setAttribute("data-completada", li.classList.contains("completada"));
+        });
+
+        const btnEliminar = document.createElement("button");
+        btnEliminar.textContent = "✘";
+        btnEliminar.className = "btnEliminar";
+        btnEliminar.addEventListener("click", () => {
+            li.remove();
+        });
+
+        li.appendChild(btnCompletar);
+        li.appendChild(btnEliminar);
+
+        return li;
+    }
+
+    // Al hacer click en "Agregar": valida que no esté vacío, crea el <li> y lo mete en la lista.
+    btnAgregar.addEventListener("click", () => {
+        const texto = input.value.trim();
+
+        if (texto === "") {
+            return;
+        }
+
+        const nuevaTarea = crearTarea(texto);
+        lista.appendChild(nuevaTarea);
+        input.value = "";
+    });
+
+    // MutationObserver vigila la lista y avisa cada vez que el DOM cambia dentro de ella,
+    // sin que tengamos que llamar nosotros a agregarLogRegistro() a mano en cada lugar.
+    const observer = new MutationObserver(mutaciones => {
+        mutaciones.forEach(mutacion => {
+            agregarLogRegistro(`Cambio: ${mutacion.type} en ${mutacion.target.nodeName}`);
+        });
+    });
+
+    // childList: detecta cuando se agrega o elimina un <li>.
+    // attributes: detecta cuando cambia un atributo (como data-completada).
+    // subtree: hace que también vigile los hijos de la lista, no solo la lista en sí.
+    observer.observe(lista, {
+        childList: true,
+        attributes: true,
+        subtree: true
+    });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Performance Monitor</title>
+<style>
+    body {
+        font-family: monospace;
+        max-width: 700px;
+        margin: 40px auto;
+        padding: 0 20px;
+    }
+
+    h1 {
+        font-family: Arial, sans-serif;
+    }
+
+    button {
+        padding: 8px 14px;
+        margin-right: 10px;
+        cursor: pointer;
+    }
+
+    #panelResumen {
+        white-space: pre;
+        font-size: 15px;
+        line-height: 1.3;
+        margin-top: 20px;
+    }
+
+    #eventos {
+        background-color: #f4f4f4;
+        padding: 10px;
+        margin-top: 20px;
+        height: 250px;
+        overflow-y: auto;
+        white-space: pre-line;
+        font-size: 13px;
+    }
+</style>
+</head>
+<body>
+
+<h1>Monitor de rendimiento</h1>
+
+<button id="btnTareaPesada">Ejecutar tarea pesada</button>
+<button id="btnLayoutShift">Generar Layout Shift</button>
+
+<h3>Eventos detectados:</h3>
+<div id="eventos">Esperando eventos...</div>
+
+<div id="panelResumen"></div>
+
+<script>
+    const eventos = document.getElementById("eventos");
+    const panelResumen = document.getElementById("panelResumen");
+    const btnTareaPesada = document.getElementById("btnTareaPesada");
+    const btnLayoutShift = document.getElementById("btnLayoutShift");
+
+    // Contadores para el panel y la puntuación, que arranca en 100 y se le van restando puntos.
+    const stats = {
+        longTasks: 0,
+        layoutShifts: 0,
+        recursosLentos: 0,
+        puntuacion: 100
+    };
+
+    // Agrega un evento nuevo al final del log y hace scroll automático hasta abajo para verlo.
+    function agregarEvento(texto) {
+        eventos.textContent += "\n\n" + texto;
+        eventos.scrollTop = eventos.scrollHeight;
+    }
+
+    // Math.max(0, ...) evita que la puntuación baje de 0.
+    function restarPuntuacion(puntos) {
+        stats.puntuacion = Math.max(0, stats.puntuacion - puntos);
+    }
+
+    // Arma a mano el cuadro de texto con bordes (los caracteres ╔ ═ ╗ ‖ ╚ ╝ son símbolos Unicode
+    // de dibujo de cajas). Se vuelve a llamar cada vez que cambia algún contador o la puntuación.
+    function dibujarPanel() {
+        const ancho = 32;
+
+        // padEnd rellena el texto con espacios hasta el ancho fijado, para que los bordes derechos
+        // de todas las filas queden alineados en la misma columna.
+        function fila(texto) {
+            return "‖ " + texto.padEnd(ancho - 2) + " ‖";
+        }
+
+        const lineas = [
+            "╔" + "═".repeat(ancho) + "╗",
+            fila("PERFORMANCE MONITOR"),
+            "╠" + "═".repeat(ancho) + "╣",
+            fila(""),
+            fila(`Long Tasks:       ${stats.longTasks}`),
+            fila(`Layout Shifts:    ${stats.layoutShifts}`),
+            fila(`Recursos lentos:  ${stats.recursosLentos}`),
+            fila(""),
+            fila(`Performance:    ${stats.puntuacion}/100`),
+            "╚" + "═".repeat(ancho) + "╝"
+        ];
+
+        panelResumen.textContent = lineas.join("\n");
+    }
+
+    dibujarPanel();
+
+    // PerformanceObserver recibe una "lista" con todas las entradas nuevas que detectó desde la
+    // última vez que se ejecutó el callback. Cada entrada trae un entryType que dice qué tipo de
+    // evento es, así que hay que revisar entryType para saber cómo tratar cada una.
+    const observer = new PerformanceObserver(lista => {
+        lista.getEntries().forEach(entrada => {
+            // longtask: el navegador reporta cualquier tarea que bloquea el hilo principal más de 50ms.
+            // Acá la penalización es más fuerte cuanto más larga es la tarea (solo se aplica una de las dos).
+            if (entrada.entryType === "longtask") {
+                stats.longTasks++;
+
+                if (entrada.duration > 1000) {
+                    restarPuntuacion(20);
+                } else if (entrada.duration > 500) {
+                    restarPuntuacion(10);
+                }
+
+                agregarEvento(`[LONGTASK]\nDuración: ${Math.round(entrada.duration)} ms`);
+            }
+
+            // layout-shift: se dispara cuando un elemento se mueve visualmente sin que el usuario lo esperara.
+            // hadRecentInput descarta los shifts causados por una acción del usuario (por ejemplo, un click
+            // que despliega contenido), que no deberían contar como mala experiencia.
+            if (entrada.entryType === "layout-shift" && !entrada.hadRecentInput) {
+                stats.layoutShifts++;
+
+                if (entrada.value > 0.25) {
+                    restarPuntuacion(15);
+                }
+
+                agregarEvento(`[LAYOUT SHIFT]\nValor: ${entrada.value.toFixed(2)}`);
+            }
+
+            // resource: una entrada por cada recurso cargado (imagen, script, css, etc). Solo nos interesan
+            // los que tardaron más de 1 segundo, así que el resto de las entradas se ignoran.
+            if (entrada.entryType === "resource" && entrada.duration > 1000) {
+                stats.recursosLentos++;
+                restarPuntuacion(5);
+
+                agregarEvento(`[RESOURCE]\nRecurso: ${entrada.name}\nDuración: ${Math.round(entrada.duration)} ms`);
+            }
+
+            // navigation: una sola entrada con los tiempos generales de carga de la página completa.
+            if (entrada.entryType === "navigation") {
+                const domContentLoaded = Math.round(entrada.domContentLoadedEventEnd);
+                const loadEvent = Math.round(entrada.loadEventEnd);
+
+                agregarEvento(`[NAVIGATION]\nDOM Content Loaded: ${domContentLoaded} ms\nLoad Event: ${loadEvent} ms`);
+            }
+
+            // Cada vez que llega un evento nuevo, se vuelve a dibujar el panel con los valores actualizados.
+            dibujarPanel();
+        });
+    });
+
+    // Hay que suscribirse a cada tipo de entrada por separado. buffered: true hace que también traiga
+    // las entradas que ya ocurrieron antes de crear el observer (por ejemplo, la navegación inicial).
+    observer.observe({ type: "longtask", buffered: true });
+    observer.observe({ type: "layout-shift", buffered: true });
+    observer.observe({ type: "resource", buffered: true });
+    observer.observe({ type: "navigation", buffered: true });
+
+    // Bucle vacío que solo revisa el reloj: como no usa await ni setTimeout, mantiene ocupado
+    // el hilo principal durante 1.5 segundos y por eso el navegador lo reporta como longtask.
+    btnTareaPesada.addEventListener("click", () => {
+        const inicio = Date.now();
+        while (Date.now() - inicio < 1500) {
+        }
+    });
+
+    // Inserta un bloque nuevo arriba de todo el contenido (insertBefore con firstChild),
+    // lo que empuja hacia abajo todo lo que ya estaba en pantalla y genera el layout shift.
+    btnLayoutShift.addEventListener("click", () => {
+        const bloque = document.createElement("div");
+        bloque.textContent = "Contenido insertado dinámicamente para provocar un layout shift";
+        bloque.style.backgroundColor = "#ffe082";
+        bloque.style.padding = "20px";
+        bloque.style.marginBottom = "10px";
+
+        document.body.insertBefore(bloque, document.body.firstChild);
+    });
+</script>
+
+</body>
+</html>
